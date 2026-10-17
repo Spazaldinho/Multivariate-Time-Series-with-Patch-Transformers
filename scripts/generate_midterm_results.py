@@ -59,9 +59,14 @@ if __name__ == "__main__":
     datasets = [('ETTh1', 'data/ETTh1.csv'), ('ETTm1', 'data/ETTm1.csv')]
     models = [('Autoformer', Autoformer), ('PatchTST', PatchTST), ('iTransformer', iTransformer)]
     
-    print("Generating Midterm Report Table 1...")
+    # Expanded horizons to fulfill Week 3 and 4 requirements
+    horizons = [96, 192, 336, 720]
+    
+    print("Generating Midterm Report Table 1 (All Horizons)...")
     for data_name, path in datasets:
-        print(f"\nDataset: {data_name} (96 -> 96)")
-        for model_name, model_cls in models:
-            mse_m, mse_s, mae_m, mae_s = evaluate_model(model_cls, path)
-            print(f"{model_name:15} | MSE: {mse_m:.3f} ± {mse_s:.3f} | MAE: {mae_m:.3f} ± {mae_s:.3f}")
+        for h in horizons:
+            # Setting both lookback and prediction length to the target horizon
+            print(f"\nDataset: {data_name} ({h} -> {h})")
+            for model_name, model_cls in models:
+                mse_m, mse_s, mae_m, mae_s = evaluate_model(model_cls, path, lookback=h, pred_len=h)
+                print(f"{model_name:15} | MSE: {mse_m:.3f} ± {mse_s:.3f} | MAE: {mae_m:.3f} ± {mae_s:.3f}")
