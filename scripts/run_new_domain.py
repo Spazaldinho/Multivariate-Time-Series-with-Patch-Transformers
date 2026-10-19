@@ -24,10 +24,11 @@ def evaluate_domain(model, dataset_path, lookback=96, pred_len=96, variates=862,
     criterion = torch.nn.MSELoss()
     
     model.train()
-    # Using 3 epochs for the rapid Week 6 baseline generation
     for epoch in range(3):
         for seq_x, seq_y in train_loader:
             optimizer.zero_grad()
+            
+            # Pass the full sequence directly to the model (no slicing/subsampling)
             loss = criterion(model(seq_x.to(device)), seq_y.to(device))
             loss.backward()
             optimizer.step()
@@ -44,7 +45,7 @@ def evaluate_domain(model, dataset_path, lookback=96, pred_len=96, variates=862,
 
 if __name__ == "__main__":
     dataset_path = 'data/traffic.csv'
-    variates = 862 # Traffic dataset has 862 features
+    variates = 862 # Full Traffic dataset features[cite: 4]
     
     # Initialize all baseline and FRP control models
     models = {
@@ -55,10 +56,10 @@ if __name__ == "__main__":
         'FRP (Gumbel)': FRPPatchTST(num_variates=variates, lookback_len=96, pred_len=96, router_type='gumbel')
     }
     
-    print("Running New Domain Experiment (Traffic Dataset)...")
+    print("Running Week 6 Traffic Domain Experiment (Full 862 Variates)...")
     for name, model in models.items():
         try:
             mse, mae = evaluate_domain(model, dataset_path, variates=variates)
-            print(f"{name:17} | MSE: {mse:.3f} | MAE: {mae:.3f}")
+            print(f"{name:25} | MSE: {mse:.3f} | MAE: {mae:.3f}")
         except Exception as e:
-            print(f"{name:17} | Evaluation Failed: {e}")
+            print(f"{name:25} | Evaluation Failed: {e}")
