@@ -3,6 +3,7 @@ import pytest
 from models.Autoformer import SeriesDecomp, AutoCorrelation, Autoformer
 from models.PatchTST import RevIN, PatchTST
 from models.iTransformer import iTransformer
+from models.FRP_PatchTST import FRPPatchTST, compute_spectral_entropy
 
 # Fixed dummy dimensions: Batch=4, Lookback=96, Prediction=96, Variates=7
 B, L, S, N = 4, 96, 96, 7
@@ -32,7 +33,9 @@ def test_revin_reversibility():
 @pytest.mark.parametrize("model_class,model_name", [
     (Autoformer, "Autoformer"),
     (PatchTST, "PatchTST"),
-    (iTransformer, "iTransformer")
+    (iTransformer, "iTransformer"),
+    (FRPPatchTST, "FRPPatchTST_gumbel"),
+    (FRPPatchTST, "FRPPatchTST_heuristic"),
 ])
 def test_model_forward_and_backward(model_class, model_name):
     """Verify output shapes [B, S, N] and check that backpropagation updates all parameters."""
@@ -41,6 +44,10 @@ def test_model_forward_and_backward(model_class, model_name):
     
     if model_name == "PatchTST":
         model = model_class(num_variates=N, lookback_len=L, pred_len=S, patch_len=16, stride=8)
+    elif model_name == "FRPPatchTST_gumbel":
+        model = model_class(num_variates=N, lookback_len=L, pred_len=S, router_type="gumbel")
+    elif model_name == "FRPPatchTST_heuristic":
+        model = model_class(num_variates=N, lookback_len=L, pred_len=S, router_type="heuristic")
     else:
         model = model_class(num_variates=N, lookback_len=L, pred_len=S)
         
@@ -52,6 +59,48 @@ def test_model_forward_and_backward(model_class, model_name):
     loss.backward()
 
     for name, param in model.named_parameters():
+        if model_name == "FRPPatchTST_heuristic" and name.startswith("router_mlp."):
+            continue
         if param.requires_grad:
             assert param.grad is not None, f"Gradient not computed for parameter: {name}"
             assert not torch.isnan(param.grad).any(), f"NaN detected in gradients of {name}"
+
+@pytest.mark.parametrize("lookback_len", [96, 336, 720])
+def test_spectral_entropy_bounds(lookback_len):
+    """Verify compute_spectral_entropy stays within [0.0, 1.0] across lookbacks."""
+    x_rand = torch.randn(B * N, lookback_len)
+    x_const = torch.ones(B * N, lookback_len) * 5.0
+    t = torch.linspace(0, 8 * torch.pi, lookback_len).unsqueeze(0).repeat(B * N, 1)
+    x_sine = torch.sin(t) + 10.0
+
+    for x in (x_rand, x_const, x_sine):
+        entropy = compute_spectral_entropy(x)
+        assert entropy.shape == (B * N, 1)
+        assert not torch.isnan(entropy).any()
+        assert (entropy >= 0.0).all() and (entropy <= 1.0).all()
+
+    # DC shift invariance: adding a constant offset must not change spectral entropy
+    torch.testing.assert_close(
+        compute_spectral_entropy(x_rand),
+        compute_spectral_entropy(x_rand + 100.0),
+        rtol=1e-4,
+        atol=1e-4,
+    )
+
+def test_frp_from_config():
+    """Verify FRPPatchTST.from_config loads calibrated quartiles and runs forward pass."""
+    import json
+    config_path = "configs/entropy_thresholds.json"
+    with open(config_path, "r") as f:
+        cfg = json.load(f)
+    expected = tuple(float(cfg["ETTh1"]["96"][k]) for k in ("q25", "q50", "q75"))
+
+    model = FRPPatchTST.from_config(
+        config_path, "ETTh1", 96, num_variates=7, pred_len=96, router_type="heuristic"
+    )
+    assert model.quartiles == expected
+
+    x = torch.randn(2, 96, 7)
+    out = model(x)
+    assert out.shape == (2, 96, 7)
+    assert not torch.isnan(out).any()

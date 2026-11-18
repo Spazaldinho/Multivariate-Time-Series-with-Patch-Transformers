@@ -8,6 +8,8 @@ from models.iTransformer import iTransformer
 from models.Autoformer import Autoformer
 
 def train_and_eval(model, train_loader, test_loader, epochs=10):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4) # Midterm hyperparameter[cite: 87]
     criterion = nn.MSELoss()
     
@@ -15,7 +17,7 @@ def train_and_eval(model, train_loader, test_loader, epochs=10):
         model.train()
         for seq_x, seq_y in train_loader:
             optimizer.zero_grad()
-            loss = criterion(model(seq_x), seq_y)
+            loss = criterion(model(seq_x.to(device)), seq_y.to(device))
             loss.backward()
             optimizer.step()
             
@@ -23,9 +25,10 @@ def train_and_eval(model, train_loader, test_loader, epochs=10):
     mse_total, mae_total = [], []
     with torch.no_grad():
         for seq_x, seq_y in test_loader:
-            pred = model(seq_x)
-            mse_total.append(torch.mean((pred - seq_y)**2).item())
-            mae_total.append(torch.mean(torch.abs(pred - seq_y)).item())
+            seq_x_dev, seq_y_dev = seq_x.to(device), seq_y.to(device)
+            pred = model(seq_x_dev)
+            mse_total.append(torch.mean((pred - seq_y_dev)**2).item())
+            mae_total.append(torch.mean(torch.abs(pred - seq_y_dev)).item())
             
     return np.mean(mse_total), np.mean(mae_total)
 
@@ -33,7 +36,7 @@ if __name__ == "__main__":
     seeds = [42, 123, 999, 2026, 473] # 5 seeds for statistical reliability[cite: 87]
     dataset = ETTDataset('data/ETTh1.csv', lookback_len=96, pred_len=96)
     train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
-    test_loader = DataLoader(ETTDataset('data/ETTh1.csv', split='test'), batch_size=32)
+    test_loader = DataLoader(ETTDataset('data/ETTh1.csv', lookback_len=96, pred_len=96, split='test', scaler=dataset.scaler), batch_size=32)
     
     metrics = []
     for seed in seeds:

@@ -20,18 +20,20 @@ class RevIN(nn.Module):
             return x * self.stdev + self.mean
 
 class PatchTST(nn.Module):
-    def __init__(self, num_variates, lookback_len, pred_len, patch_len=16, stride=8, d_model=128):
+    def __init__(self, num_variates, lookback_len, pred_len, patch_len=16, stride=None, d_model=128):
         super().__init__()
         self.pred_len = pred_len
         self.patch_len = patch_len
-        self.stride = stride
+        self.stride = patch_len // 2 if stride is None else stride
         self.revin = RevIN(num_variates)
         
-        self.num_patches = (lookback_len - patch_len) // stride + 2
+        self.num_patches = (lookback_len - patch_len) // self.stride + 2
         self.patch_embed = nn.Linear(patch_len, d_model)
         self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, d_model))
         
-        self.transformer = nn.TransformerEncoderLayer(d_model, nhead=8, batch_first=True)
+        self.transformer = nn.TransformerEncoderLayer(
+            d_model, nhead=8, dim_feedforward=4 * d_model, batch_first=True
+        )
         self.head = nn.Linear(self.num_patches * d_model, pred_len)
 
     def forward(self, x):
@@ -42,7 +44,7 @@ class PatchTST(nn.Module):
         x_ci = x.permute(0, 2, 1).reshape(B * M, L)
         
         # Pad sequence and generate patches
-        x_padded = torch.cat([x_ci, x_ci[:, -self.stride:]], dim=1)
+        x_padded = torch.cat([x_ci, x_ci[:, -1:].repeat(1, self.stride)], dim=1)
         patches = x_padded.unfold(dimension=1, size=self.patch_len, step=self.stride)
         
         tokens = self.patch_embed(patches) + self.pos_embed

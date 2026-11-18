@@ -73,7 +73,4 @@ def generate_plot():
     print("Saved visualization to prediction_plot.png")
 
 if __name__ == "__main__":
-    # Force CPU fallback if running locally on Mac
-    import os
-    os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
     generate_plot()

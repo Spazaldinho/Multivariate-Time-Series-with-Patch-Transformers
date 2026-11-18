@@ -38,10 +38,10 @@ class ETTDataset(Dataset):
         
         start_idx, end_idx = borders[split]
         
-        # FIXED: Use the passed scaler for test/val, or create a new one for train
-        if split == 'train':
+        # Use the passed scaler for test/val, or fit exclusively on train statistics if None
+        if split == 'train' or scaler is None:
             self.scaler = StandardScaler()
-            self.scaler.fit(data[start_idx:end_idx])
+            self.scaler.fit(data[0:num_train])
         else:
             self.scaler = scaler
             

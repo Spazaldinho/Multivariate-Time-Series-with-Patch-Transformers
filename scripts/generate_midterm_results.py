@@ -9,8 +9,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 def evaluate_model(model_class, dataset_path, lookback=96, pred_len=96, seeds=[42, 123, 999]):
-    # Dynamically detect hardware accelerator
-    device = torch.device('mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu')
+    # Dynamically detect hardware accelerator (prioritize CUDA)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     
     mses, maes = [], []
     
