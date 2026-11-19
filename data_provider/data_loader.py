@@ -46,6 +46,7 @@ class ETTDataset(Dataset):
             self.scaler = scaler
             
         self.data = self.scaler.transform(data[start_idx:end_idx])
+        self.data_tensor = torch.as_tensor(self.data, dtype=torch.float32)
         self.lookback_len = lookback_len
         self.pred_len = pred_len
 
@@ -57,5 +58,4 @@ class ETTDataset(Dataset):
         s_end = s_begin + self.lookback_len
         r_begin = s_end
         r_end = r_begin + self.pred_len
-        return (torch.tensor(self.data[s_begin:s_end], dtype=torch.float32), 
-                torch.tensor(self.data[r_begin:r_end], dtype=torch.float32))
+        return self.data_tensor[s_begin:s_end], self.data_tensor[r_begin:r_end]

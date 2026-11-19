@@ -32,7 +32,7 @@ class PatchTST(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, d_model))
         
         self.transformer = nn.TransformerEncoderLayer(
-            d_model, nhead=8, dim_feedforward=4 * d_model, batch_first=True
+            d_model, nhead=8, dim_feedforward=2 * d_model, batch_first=True
         )
         self.head = nn.Linear(self.num_patches * d_model, pred_len)
 

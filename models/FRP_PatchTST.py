@@ -33,9 +33,9 @@ class FRPPatchTST(nn.Module):
 
         # Learned Gumbel-Softmax Router (1D spectral entropy -> logits over patch sizes)
         self.router_mlp = nn.Sequential(
-            nn.Linear(1, 16),
+            nn.Linear(1, 32),
             nn.GELU(),
-            nn.Linear(16, len(patch_sizes))
+            nn.Linear(32, len(patch_sizes))
         )
 
         # Resolution-specific tokenizers and heads sharing a single Transformer backbone
@@ -51,8 +51,12 @@ class FRPPatchTST(nn.Module):
             self.heads.append(nn.Linear(num_patches * d_model, pred_len))
 
         self.encoder = nn.TransformerEncoderLayer(
-            d_model, nhead=8, dim_feedforward=4 * d_model, batch_first=True
+            d_model, nhead=8, dim_feedforward=2 * d_model, batch_first=True
         )
+
+    def set_temperature(self, tau):
+        """Update Gumbel-Softmax temperature for annealing."""
+        self.tau = float(tau)
 
     @classmethod
     def from_config(cls, config_path, dataset_name, lookback_len, **kwargs):
@@ -85,7 +89,17 @@ class FRPPatchTST(nn.Module):
             idx = torch.where(entropy < q25, 3, idx) # P=64
             return F.one_hot(idx.squeeze(-1), num_classes=len(self.patch_sizes)).float()
 
-    def forward(self, x):
+    def _encode_branch(self, x_sub, branch_idx):
+        """Patch, embed, encode, and project a batch of univariate windows for branch_idx."""
+        P = self.patch_sizes[branch_idx]
+        stride = P // 2
+        x_pad = torch.cat([x_sub, x_sub[:, -1:].repeat(1, stride)], dim=1)
+        patches = x_pad.unfold(dimension=1, size=P, step=stride)
+        tokens = self.embed_layers[branch_idx](patches) + self.pos_embeds[branch_idx]
+        encoded = self.encoder(tokens)
+        return self.heads[branch_idx](encoded.reshape(x_sub.shape[0], -1))
+
+    def forward(self, x, return_routing=False):
         B, L, M = x.shape
         x = self.revin(x, mode='norm')
         x_ci = x.permute(0, 2, 1).reshape(B * M, L)
@@ -93,16 +107,20 @@ class FRPPatchTST(nn.Module):
         entropy = compute_spectral_entropy(x_ci.detach())
         weights = self.get_routing_weights(entropy) # [B * M, num_resolutions]
 
-        # Compute resolution outputs and route via discrete selection weights
-        out_total = torch.zeros(B * M, self.pred_len, device=x.device)
-        for i, P in enumerate(self.patch_sizes):
-            stride = P // 2
-            x_pad = torch.cat([x_ci, x_ci[:, -1:].repeat(1, stride)], dim=1)
-            patches = x_pad.unfold(dimension=1, size=P, step=stride)
-            tokens = self.embed_layers[i](patches) + self.pos_embeds[i]
-            encoded = self.encoder(tokens)
-            pred_i = self.heads[i](encoded.reshape(B * M, -1))
-            out_total += pred_i * weights[:, i:i+1]
+        # Sparse dispatch when routing weights are non-differentiable; full pass during Gumbel training
+        out_total = torch.zeros(B * M, self.pred_len, device=x.device, dtype=x.dtype)
+        if not weights.requires_grad:
+            for i in range(len(self.patch_sizes)):
+                mask = weights[:, i] > 0.5
+                if mask.any():
+                    out_total[mask] = self._encode_branch(x_ci[mask], i)
+        else:
+            for i in range(len(self.patch_sizes)):
+                pred_i = self._encode_branch(x_ci, i)
+                out_total += pred_i * weights[:, i:i+1]
 
         pred = out_total.reshape(B, M, self.pred_len).permute(0, 2, 1)
-        return self.revin(pred, mode='denorm')
+        denorm_pred = self.revin(pred, mode='denorm')
+        if return_routing:
+            return denorm_pred, weights
+        return denorm_pred

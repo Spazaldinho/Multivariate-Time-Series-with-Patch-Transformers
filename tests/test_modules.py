@@ -51,7 +51,13 @@ def test_model_forward_and_backward(model_class, model_name):
     else:
         model = model_class(num_variates=N, lookback_len=L, pred_len=S)
         
-    out = model(x)
+    if model_name == "FRPPatchTST_heuristic":
+        out, weights = model(x, return_routing=True)
+        active_branches = {i for i in range(len(model.patch_sizes)) if (weights[:, i] > 0.5).any()}
+    else:
+        out = model(x)
+        active_branches = None
+
     assert out.shape == (B, S, N), f"{model_name} output shape mismatch: got {out.shape}, expected {(B, S, N)}"
     assert not torch.isnan(out).any(), f"{model_name} produced NaN outputs"
 
@@ -59,8 +65,12 @@ def test_model_forward_and_backward(model_class, model_name):
     loss.backward()
 
     for name, param in model.named_parameters():
-        if model_name == "FRPPatchTST_heuristic" and name.startswith("router_mlp."):
-            continue
+        if model_name == "FRPPatchTST_heuristic":
+            if name.startswith("router_mlp."):
+                continue
+            # Sparse dispatch only runs active branches present in the batch
+            if any(name.startswith(f"{prefix}.{i}") for prefix in ("embed_layers", "pos_embeds", "heads") for i in range(len(model.patch_sizes)) if i not in active_branches):
+                continue
         if param.requires_grad:
             assert param.grad is not None, f"Gradient not computed for parameter: {name}"
             assert not torch.isnan(param.grad).any(), f"NaN detected in gradients of {name}"
@@ -104,3 +114,25 @@ def test_frp_from_config():
     out = model(x)
     assert out.shape == (2, 96, 7)
     assert not torch.isnan(out).any()
+
+def test_frp_temperature_and_return_routing():
+    """Verify set_temperature and return_routing=True output shape, one-hot sum, and eval determinism."""
+    model = FRPPatchTST(num_variates=N, lookback_len=L, pred_len=S, router_type="gumbel", tau=1.0)
+    assert model.tau == 1.0
+    model.set_temperature(0.5)
+    assert model.tau == 0.5
+
+    x = torch.randn(B, L, N)
+    model.train()
+    out_train, w_train = model(x, return_routing=True)
+    assert out_train.shape == (B, S, N)
+    assert w_train.shape == (B * N, 4)
+    torch.testing.assert_close(w_train.sum(dim=-1), torch.ones(B * N))
+
+    model.eval()
+    out_eval1, w_eval1 = model(x, return_routing=True)
+    out_eval2, w_eval2 = model(x, return_routing=True)
+    assert w_eval1.shape == (B * N, 4)
+    torch.testing.assert_close(w_eval1.sum(dim=-1), torch.ones(B * N))
+    torch.testing.assert_close(w_eval1, w_eval2)
+    torch.testing.assert_close(out_eval1, out_eval2)
