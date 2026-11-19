@@ -127,7 +127,7 @@ def train_and_eval_seed(
         for seq_x, seq_y in train_loader:
             optimizer.zero_grad()
             pred = model(seq_x.to(device))
-            loss = criterion(pred, seq_y.to(device))
+            loss = criterion(pred, seq_y.to(device)) + model.aux_loss
             loss.backward()
             optimizer.step()
 
@@ -179,6 +179,50 @@ def print_markdown_summary(summary_rows):
             f"| {r['dataset']} | {r['lookback']} -> {r['pred_len']} | {r['model']} | "
             f"{mse_str} | {mae_str} | {r['pct_p8']:.1f}% | {r['pct_p16']:.1f}% | "
             f"{r['pct_p32']:.1f}% | {r['pct_p64']:.1f}% |",
+            flush=True,
+        )
+
+
+def print_unregularized_comparison(summary_rows, unreg_csv_path):
+    """Compare Balanced Gumbel, Heuristic, and saved Unregularized Gumbel results side-by-side."""
+    if not os.path.exists(unreg_csv_path):
+        return
+    with open(unreg_csv_path, "r") as f:
+        unreg_rows = [
+            r for r in csv.DictReader(f)
+            if r["row_type"] == "summary" and r["model"] == "FRPPatchTST (Gumbel)"
+        ]
+    unreg_by_task = {(r["dataset"], int(r["lookback"]), int(r["pred_len"])): r for r in unreg_rows}
+    heur_by_task = {
+        (r["dataset"], int(r["lookback"]), int(r["pred_len"])): r
+        for r in summary_rows if r["model"] == "FRPPatchTST (Heuristic)"
+    }
+    gumbel_by_task = {
+        (r["dataset"], int(r["lookback"]), int(r["pred_len"])): r
+        for r in summary_rows if r["model"] == "FRPPatchTST (Gumbel)"
+    }
+
+    print("\n## Side-by-Side Comparison: Heuristic vs Unregularized Gumbel vs Balanced Gumbel\n", flush=True)
+    print(
+        "| Dataset | L -> S | Heuristic MSE (MAE) | Unreg Gumbel MSE (MAE) | Unreg Route [8/16/32/64] | Balanced Gumbel MSE (MAE) | Balanced Route [8/16/32/64] |",
+        flush=True,
+    )
+    print(
+        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
+        flush=True,
+    )
+    for key, gb in gumbel_by_task.items():
+        h = heur_by_task.get(key)
+        u = unreg_by_task.get(key)
+        if not h or not u:
+            continue
+        u_route = f"{float(u['pct_p8']):.1f}/{float(u['pct_p16']):.1f}/{float(u['pct_p32']):.1f}/{float(u['pct_p64']):.1f}%"
+        b_route = f"{gb['pct_p8']:.1f}/{gb['pct_p16']:.1f}/{gb['pct_p32']:.1f}/{gb['pct_p64']:.1f}%"
+        print(
+            f"| {key[0]} | {key[1]} -> {key[2]} | "
+            f"{h['mse']:.4f} ({h['mae']:.4f}) | "
+            f"{float(u['mse']):.4f} ({float(u['mae']):.4f}) | {u_route} | "
+            f"{gb['mse']:.4f} ({gb['mae']:.4f}) | {b_route} |",
             flush=True,
         )
 
@@ -295,6 +339,8 @@ def run_benchmarks():
                 )
 
     print_markdown_summary(summary_rows)
+    unreg_csv = os.path.join(PROJECT_ROOT, "results/frp_ett_benchmarks_unregularized.csv")
+    print_unregularized_comparison(summary_rows, unreg_csv)
     print(f"\nSaved full benchmark results to {output_csv}", flush=True)
 
 

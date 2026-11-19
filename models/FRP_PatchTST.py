@@ -22,21 +22,32 @@ def compute_spectral_entropy(x, eps=1e-8):
 
 class FRPPatchTST(nn.Module):
     def __init__(self, num_variates, lookback_len=96, pred_len=96, patch_sizes=(8, 16, 32, 64), 
-                 d_model=128, router_type='gumbel', tau=1.0, quartiles=(0.45, 0.60, 0.75)):
+                 d_model=128, router_type='gumbel', tau=1.0, quartiles=(0.45, 0.60, 0.75),
+                 balance_weight=0.5):
         super().__init__()
         self.pred_len = pred_len
         self.patch_sizes = patch_sizes
         self.router_type = router_type # 'gumbel' or 'heuristic'
         self.tau = tau
         self.quartiles = quartiles
+        self.balance_weight = balance_weight
+        self.aux_loss = 0.0
         self.revin = RevIN(num_variates)
 
-        # Learned Gumbel-Softmax Router (1D spectral entropy -> logits over patch sizes)
+        # Learned Gumbel-Softmax Router (IQR-normalized entropy -> residual logits over patch sizes)
         self.router_mlp = nn.Sequential(
             nn.Linear(1, 32),
             nn.GELU(),
             nn.Linear(32, len(patch_sizes))
         )
+        nn.init.normal_(self.router_mlp[-1].weight, std=0.05)
+        nn.init.zeros_(self.router_mlp[-1].bias)
+
+        # Learnable quartile anchors in IQR-normalized entropy space [P=8, P=16, P=32, P=64]
+        self.anchor_centers = nn.Parameter(
+            torch.tensor([[0.85, 0.25, -0.25, -0.85]])[:, :len(patch_sizes)].clone()
+        )
+        self.anchor_scale = nn.Parameter(torch.ones(1, len(patch_sizes)) * 1.5)
 
         # Resolution-specific tokenizers and heads sharing a single Transformer backbone
         self.embed_layers = nn.ModuleList()
@@ -75,12 +86,31 @@ class FRPPatchTST(nn.Module):
 
     def get_routing_weights(self, entropy):
         if self.router_type == 'gumbel':
-            logits = self.router_mlp(entropy)
+            q25, q50, q75 = self.quartiles
+            iqr = max(float(q75 - q25), 1e-4)
+            h_norm = (entropy - float(q50)) / iqr
+
+            anchor_logits = -F.softplus(self.anchor_scale) * (h_norm - self.anchor_centers) ** 2
+            logits = self.router_mlp(h_norm) + anchor_logits
+
+            probs = F.softmax(logits / max(self.tau, 1e-4), dim=-1)
+            mean_prob = probs.mean(dim=0)
+
+            K = len(self.patch_sizes)
+            target_prob = 1.0 / K
+            balance_loss = K * torch.sum((mean_prob - target_prob) ** 2)
+            cond_entropy = -torch.sum(probs * torch.log(probs.clamp(min=1e-8)), dim=-1).mean()
+            self.aux_loss = self.balance_weight * balance_loss + 0.02 * cond_entropy
+
             if self.training:
                 # Straight-Through Gumbel-Softmax produces one-hot weights in forward, differentiable in backward
-                return F.gumbel_softmax(logits, tau=self.tau, hard=True, dim=-1)
-            return F.one_hot(logits.argmax(dim=-1), num_classes=len(self.patch_sizes)).float()
+                weights = F.gumbel_softmax(logits, tau=self.tau, hard=True, dim=-1)
+                frac = weights.detach().mean(dim=0)
+                self.aux_loss = self.aux_loss + self.balance_weight * K * torch.sum(frac * mean_prob)
+                return weights
+            return F.one_hot(logits.argmax(dim=-1), num_classes=K).float()
         elif self.router_type == 'heuristic':
+            self.aux_loss = torch.tensor(0.0, device=entropy.device)
             # Deterministic quartile thresholding: Higher entropy -> smaller patch size
             q25, q50, q75 = self.quartiles
             idx = torch.zeros_like(entropy, dtype=torch.long)

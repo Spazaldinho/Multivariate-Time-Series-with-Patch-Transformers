@@ -66,7 +66,7 @@ def test_model_forward_and_backward(model_class, model_name):
 
     for name, param in model.named_parameters():
         if model_name == "FRPPatchTST_heuristic":
-            if name.startswith("router_mlp."):
+            if name.startswith("router_mlp.") or name in ("anchor_centers", "anchor_scale"):
                 continue
             # Sparse dispatch only runs active branches present in the batch
             if any(name.startswith(f"{prefix}.{i}") for prefix in ("embed_layers", "pos_embeds", "heads") for i in range(len(model.patch_sizes)) if i not in active_branches):
@@ -116,7 +116,7 @@ def test_frp_from_config():
     assert not torch.isnan(out).any()
 
 def test_frp_temperature_and_return_routing():
-    """Verify set_temperature and return_routing=True output shape, one-hot sum, and eval determinism."""
+    """Verify set_temperature, return_routing=True, aux_loss grad, and multi-branch routing diversity."""
     model = FRPPatchTST(num_variates=N, lookback_len=L, pred_len=S, router_type="gumbel", tau=1.0)
     assert model.tau == 1.0
     model.set_temperature(0.5)
@@ -128,6 +128,8 @@ def test_frp_temperature_and_return_routing():
     assert out_train.shape == (B, S, N)
     assert w_train.shape == (B * N, 4)
     torch.testing.assert_close(w_train.sum(dim=-1), torch.ones(B * N))
+    assert isinstance(model.aux_loss, torch.Tensor) and model.aux_loss.ndim == 0
+    assert model.aux_loss.requires_grad
 
     model.eval()
     out_eval1, w_eval1 = model(x, return_routing=True)
@@ -136,3 +138,16 @@ def test_frp_temperature_and_return_routing():
     torch.testing.assert_close(w_eval1.sum(dim=-1), torch.ones(B * N))
     torch.testing.assert_close(w_eval1, w_eval2)
     torch.testing.assert_close(out_eval1, out_eval2)
+
+    # Synthetic batch spanning distinct spectral regimes (constant, low-freq, mid-freq, white noise)
+    t = torch.linspace(0, 2 * torch.pi, L)
+    x_const = torch.ones(L)
+    x_low = torch.sin(t)
+    x_mid = torch.sin(8 * t) + 0.5 * torch.sin(13 * t)
+    torch.manual_seed(0)
+    x_noise = torch.randn(L)
+    variates = torch.stack([x_const, x_low, x_mid, x_noise, x_const * 2, x_low * 3, x_noise * 0.5], dim=-1)
+    x_diverse = variates.unsqueeze(0).repeat(2, 1, 1)
+    _, w_diverse = model(x_diverse, return_routing=True)
+    active_branches = (w_diverse.sum(dim=0) > 0).sum().item()
+    assert active_branches >= 2, f"Expected multi-branch routing across diverse spectra, got {w_diverse.sum(dim=0)}"
