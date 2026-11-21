@@ -10,7 +10,9 @@ class iTransformer(nn.Module):
         self.embedding = nn.Linear(lookback_len, d_model)
         
         # Transformer blocks operate on the inverted [Batch, Variates, D] dimensions
-        self.transformer = nn.TransformerEncoderLayer(d_model, nhead=8, batch_first=True)
+        self.transformer = nn.TransformerEncoderLayer(
+            d_model, nhead=8, dim_feedforward=2 * d_model, batch_first=True
+        )
         
         # Dense linear projection directly to future forecast horizon
         self.projection = nn.Linear(d_model, pred_len)
