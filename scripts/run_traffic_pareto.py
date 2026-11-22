@@ -402,11 +402,11 @@ def plot_pareto(summary_rows, fig_path):
     fig, ax = plt.subplots(figsize=(8.5, 5.5))
 
     styles = {
-        "PatchTST (P=16)": {"color": "#1f77b4", "marker": "o", "offset": (8, 8)},
-        "PatchTST (P=32)": {"color": "#2ca02c", "marker": "s", "offset": (8, -14)},
-        "iTransformer": {"color": "#9467bd", "marker": "^", "offset": (-10, 10)},
-        "FRPPatchTST (Heuristic)": {"color": "#ff7f0e", "marker": "D", "offset": (8, 8)},
-        "FRPPatchTST (Gumbel)": {"color": "#d62728", "marker": "*", "offset": (10, -12)},
+        "PatchTST (P=16)": {"color": "#1f77b4", "marker": "o", "offset": (0, -26), "ha": "center"},
+        "PatchTST (P=32)": {"color": "#2ca02c", "marker": "s", "offset": (10, -12), "ha": "left"},
+        "iTransformer": {"color": "#9467bd", "marker": "^", "offset": (10, 6), "ha": "left"},
+        "FRPPatchTST (Heuristic)": {"color": "#ff7f0e", "marker": "D", "offset": (-12, -8), "ha": "right"},
+        "FRPPatchTST (Gumbel)": {"color": "#d62728", "marker": "*", "offset": (-12, 10), "ha": "right"},
     }
 
     pareto_candidates = []
@@ -442,6 +442,7 @@ def plot_pareto(summary_rows, fig_path):
             xy=(x, y),
             xytext=(dx, dy),
             textcoords="offset points",
+            ha=st.get("ha", "left"),
             fontsize=8.5,
             fontweight="bold" if "Gumbel" in label else "normal",
             color=st["color"],
@@ -466,6 +467,7 @@ def plot_pareto(summary_rows, fig_path):
     ax.set_title("PEMS04 Traffic (862 Variates, 96→96): Accuracy vs. Inference Latency Pareto", pad=12)
     ax.set_xlabel("Mean Inference Latency (ms / batch, batch_size=8)")
     ax.set_ylabel("Test MSE (lower is better)")
+    ax.margins(x=0.10, y=0.12)
     ax.grid(True, linestyle=":", alpha=0.5)
     ax.legend(loc="best", frameon=True, fontsize=8.5)
     fig.tight_layout()
