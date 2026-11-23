@@ -1,2 +1,14 @@
+# Raw datasets
 data/
-!data/datasets.zip
+data/*.csv
+data/*.zip
+
+# Byte-compiled / cache / test artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Logs & OS artifacts
+*.log
+.DS_Store
