@@ -45,7 +45,14 @@ class PatchTST(nn.Module):
         
         # Pad sequence and generate patches
         x_padded = torch.cat([x_ci, x_ci[:, -1:].repeat(1, self.stride)], dim=1)
-        patches = x_padded.unfold(dimension=1, size=self.patch_len, step=self.stride)
+        if x_padded.is_mps:
+            idx = (
+                torch.arange(self.patch_len, device=x.device)[None, :]
+                + self.stride * torch.arange(self.num_patches, device=x.device)[:, None]
+            )
+            patches = x_padded[:, idx]
+        else:
+            patches = x_padded.unfold(dimension=1, size=self.patch_len, step=self.stride)
         
         tokens = self.patch_embed(patches) + self.pos_embed
         out = self.transformer(tokens)

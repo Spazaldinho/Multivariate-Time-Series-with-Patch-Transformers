@@ -25,9 +25,11 @@ class FRPPatchTST(nn.Module):
                  d_model=128, router_type='gumbel', tau=1.0, quartiles=(0.45, 0.60, 0.75),
                  balance_weight=0.5):
         super().__init__()
+        if router_type not in ('gumbel', 'heuristic', 'random'):
+            raise ValueError(f"Unsupported router_type '{router_type}'; expected 'gumbel', 'heuristic', or 'random'.")
         self.pred_len = pred_len
         self.patch_sizes = patch_sizes
-        self.router_type = router_type # 'gumbel' or 'heuristic'
+        self.router_type = router_type # 'gumbel', 'heuristic', or 'random'
         self.tau = tau
         self.quartiles = quartiles
         self.balance_weight = balance_weight
@@ -84,72 +86,124 @@ class FRPPatchTST(nn.Module):
             kwargs["num_variates"] = default_variates
         return cls(lookback_len=lookback_len, **kwargs)
 
+    def _compute_gumbel_logits(self, entropy):
+        """Compute IQR-normalized anchor-biased router logits."""
+        q25, q50, q75 = self.quartiles
+        iqr = max(float(q75 - q25), 1e-4)
+        h_norm = (entropy - float(q50)) / iqr
+        anchor_logits = -F.softplus(self.anchor_scale) * (h_norm - self.anchor_centers) ** 2
+        return self.router_mlp(h_norm) + anchor_logits
+
+    def _compute_heuristic_indices(self, entropy_1d):
+        """Map 1D spectral entropy [B*M] to deterministic quartile branch indices."""
+        q25, q50, q75 = self.quartiles
+        idx = torch.zeros_like(entropy_1d, dtype=torch.long)
+        idx = torch.where(entropy_1d < q75, 1, idx) # P=16
+        idx = torch.where(entropy_1d < q50, 2, idx) # P=32
+        idx = torch.where(entropy_1d < q25, 3, idx) # P=64
+        return idx
+
     def get_routing_weights(self, entropy):
+        K = len(self.patch_sizes)
         if self.router_type == 'gumbel':
-            q25, q50, q75 = self.quartiles
-            iqr = max(float(q75 - q25), 1e-4)
-            h_norm = (entropy - float(q50)) / iqr
-
-            anchor_logits = -F.softplus(self.anchor_scale) * (h_norm - self.anchor_centers) ** 2
-            logits = self.router_mlp(h_norm) + anchor_logits
-
-            probs = F.softmax(logits / max(self.tau, 1e-4), dim=-1)
-            mean_prob = probs.mean(dim=0)
-
-            K = len(self.patch_sizes)
-            target_prob = 1.0 / K
-            balance_loss = K * torch.sum((mean_prob - target_prob) ** 2)
-            cond_entropy = -torch.sum(probs * torch.log(probs.clamp(min=1e-8)), dim=-1).mean()
-            self.aux_loss = self.balance_weight * balance_loss + 0.02 * cond_entropy
-
+            logits = self._compute_gumbel_logits(entropy)
             if self.training:
-                # Straight-Through Gumbel-Softmax produces one-hot weights in forward, differentiable in backward
+                probs = F.softmax(logits / max(self.tau, 1e-4), dim=-1)
+                mean_prob = probs.mean(dim=0)
+                target_prob = 1.0 / K
+                balance_loss = K * torch.sum((mean_prob - target_prob) ** 2)
+                cond_entropy = -torch.sum(probs * torch.log(probs.clamp(min=1e-8)), dim=-1).mean()
                 weights = F.gumbel_softmax(logits, tau=self.tau, hard=True, dim=-1)
                 frac = weights.detach().mean(dim=0)
-                self.aux_loss = self.aux_loss + self.balance_weight * K * torch.sum(frac * mean_prob)
+                self.aux_loss = (
+                    self.balance_weight * balance_loss
+                    + 0.02 * cond_entropy
+                    + self.balance_weight * K * torch.sum(frac * mean_prob)
+                )
                 return weights
+            self.aux_loss = torch.tensor(0.0, device=entropy.device, dtype=entropy.dtype)
             return F.one_hot(logits.argmax(dim=-1), num_classes=K).float()
         elif self.router_type == 'heuristic':
-            self.aux_loss = torch.tensor(0.0, device=entropy.device)
-            # Deterministic quartile thresholding: Higher entropy -> smaller patch size
-            q25, q50, q75 = self.quartiles
-            idx = torch.zeros_like(entropy, dtype=torch.long)
-            idx = torch.where(entropy < q75, 1, idx) # P=16
-            idx = torch.where(entropy < q50, 2, idx) # P=32
-            idx = torch.where(entropy < q25, 3, idx) # P=64
-            return F.one_hot(idx.squeeze(-1), num_classes=len(self.patch_sizes)).float()
+            self.aux_loss = torch.tensor(0.0, device=entropy.device, dtype=entropy.dtype)
+            idx = self._compute_heuristic_indices(entropy.squeeze(-1))
+            return F.one_hot(idx, num_classes=K).float()
+        elif self.router_type == 'random':
+            self.aux_loss = torch.tensor(0.0, device=entropy.device, dtype=entropy.dtype)
+            idx = torch.randint(0, K, (entropy.shape[0],), device=entropy.device)
+            return F.one_hot(idx, num_classes=K).float()
 
     def _encode_branch(self, x_sub, branch_idx):
         """Patch, embed, encode, and project a batch of univariate windows for branch_idx."""
         P = self.patch_sizes[branch_idx]
         stride = P // 2
         x_pad = torch.cat([x_sub, x_sub[:, -1:].repeat(1, stride)], dim=1)
-        patches = x_pad.unfold(dimension=1, size=P, step=stride)
+        if x_pad.is_mps:
+            num_patches = (x_sub.shape[1] - P) // stride + 2
+            idx = (
+                torch.arange(P, device=x_sub.device)[None, :]
+                + stride * torch.arange(num_patches, device=x_sub.device)[:, None]
+            )
+            patches = x_pad[:, idx]
+        else:
+            patches = x_pad.unfold(dimension=1, size=P, step=stride)
         tokens = self.embed_layers[branch_idx](patches) + self.pos_embeds[branch_idx]
         encoded = self.encoder(tokens)
         return self.heads[branch_idx](encoded.reshape(x_sub.shape[0], -1))
 
-    def forward(self, x, return_routing=False):
+    def _dispatch_sparse(self, x_ci, branch_idx):
+        """Execute only the active resolution branches for the assigned windows."""
+        preds = torch.empty((x_ci.shape[0], self.pred_len), device=x_ci.device, dtype=x_ci.dtype)
+        for i in range(len(self.patch_sizes)):
+            mask = (branch_idx == i)
+            if mask.any():
+                preds[mask] = self._encode_branch(x_ci[mask], i)
+        return preds
+
+    def forward(self, x, return_routing=False, dense_eval=False):
         B, L, M = x.shape
+        K = len(self.patch_sizes)
         x = self.revin(x, mode='norm')
         x_ci = x.permute(0, 2, 1).reshape(B * M, L)
 
-        entropy = compute_spectral_entropy(x_ci.detach())
-        weights = self.get_routing_weights(entropy) # [B * M, num_resolutions]
-
-        # Sparse dispatch when routing weights are non-differentiable; full pass during Gumbel training
-        out_total = torch.zeros(B * M, self.pred_len, device=x.device, dtype=x.dtype)
-        if not weights.requires_grad:
-            for i in range(len(self.patch_sizes)):
-                mask = weights[:, i] > 0.5
-                if mask.any():
-                    out_total[mask] = self._encode_branch(x_ci[mask], i)
+        if self.training:
+            if self.router_type == 'gumbel':
+                entropy = compute_spectral_entropy(x_ci.detach())
+                weights = self.get_routing_weights(entropy)
+                preds = torch.zeros((B * M, self.pred_len), device=x.device, dtype=x.dtype)
+                for i in range(K):
+                    preds = preds + self._encode_branch(x_ci, i) * weights[:, i:i+1]
+            elif self.router_type == 'heuristic':
+                self.aux_loss = torch.tensor(0.0, device=x.device, dtype=x.dtype)
+                entropy = compute_spectral_entropy(x_ci.detach()).squeeze(-1)
+                branch_idx = self._compute_heuristic_indices(entropy)
+                preds = self._dispatch_sparse(x_ci, branch_idx)
+                weights = F.one_hot(branch_idx, num_classes=K).to(dtype=x.dtype) if return_routing else None
+            else: # 'random'
+                self.aux_loss = torch.tensor(0.0, device=x.device, dtype=x.dtype)
+                branch_idx = torch.randint(0, K, (B * M,), device=x.device)
+                preds = self._dispatch_sparse(x_ci, branch_idx)
+                weights = F.one_hot(branch_idx, num_classes=K).to(dtype=x.dtype) if return_routing else None
         else:
-            for i in range(len(self.patch_sizes)):
-                pred_i = self._encode_branch(x_ci, i)
-                out_total += pred_i * weights[:, i:i+1]
+            self.aux_loss = torch.tensor(0.0, device=x.device, dtype=x.dtype)
+            if self.router_type == 'gumbel':
+                entropy = compute_spectral_entropy(x_ci.detach())
+                branch_idx = self._compute_gumbel_logits(entropy).argmax(dim=-1)
+            elif self.router_type == 'heuristic':
+                entropy = compute_spectral_entropy(x_ci.detach()).squeeze(-1)
+                branch_idx = self._compute_heuristic_indices(entropy)
+            else: # 'random'
+                branch_idx = torch.randint(0, K, (B * M,), device=x.device)
 
-        pred = out_total.reshape(B, M, self.pred_len).permute(0, 2, 1)
+            if not dense_eval:
+                preds = self._dispatch_sparse(x_ci, branch_idx)
+            else:
+                one_hot = F.one_hot(branch_idx, num_classes=K).to(dtype=x.dtype)
+                preds = torch.zeros((B * M, self.pred_len), device=x.device, dtype=x.dtype)
+                for i in range(K):
+                    preds = preds + self._encode_branch(x_ci, i) * one_hot[:, i:i+1]
+            weights = F.one_hot(branch_idx, num_classes=K).to(dtype=x.dtype) if return_routing else None
+
+        pred = preds.reshape(B, M, self.pred_len).permute(0, 2, 1)
         denorm_pred = self.revin(pred, mode='denorm')
         if return_routing:
             return denorm_pred, weights

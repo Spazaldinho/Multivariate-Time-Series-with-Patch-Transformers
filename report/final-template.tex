@@ -1,0 +1,304 @@
+\documentclass[11pt, letterpaper]{article}
+\usepackage{amsmath, amssymb}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{geometry}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tcolorbox}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{parskip}
+\geometry{margin=1in}
+
+\definecolor{courseblue}{HTML}{002452}
+\definecolor{coursegold}{HTML}{FABD0F}
+\definecolor{coursered}{HTML}{B90E31}
+\definecolor{lightblue}{HTML}{E8EEF7}
+\definecolor{lightgold}{HTML}{FEF8E3}
+
+\hypersetup{colorlinks=true,linkcolor=courseblue,urlcolor=coursered}
+\tcbuselibrary{skins}
+\newtcolorbox{guidancebox}{enhanced,colback=lightblue,colframe=courseblue,
+  sharp corners,leftrule=4pt,left=6pt,right=6pt,top=4pt,bottom=4pt}
+
+\pagestyle{fancy}\fancyhf{}
+\fancyhead[L]{\small\textcolor{courseblue}{\textbf{CISC 867 --- Deep Learning | Fall 2026}}}
+\fancyhead[R]{\small\textcolor{courseblue}{Final Report}}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\titleformat{\section}{\large\bfseries\color{courseblue}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries\color{courseblue}}{}{0em}{}
+
+\begin{document}
+
+{\centering
+  {\Large\textbf{CISC 867: Deep Learning --- Final Report}}\\[0.5em]
+  {\large\textit{[PROJECT ID AND TITLE]}}\\[0.4em]
+  \textbf{Group Members:}\\
+  {[Student 1 Name]} (Project Lead) \quad
+  {[Student 2 Name]} (Research Lead) \quad
+  {[Student 3 Name]} (Engineering Lead)\\[0.3em]
+  \textbf{GitHub:} \url{[link]} \quad \textbf{Date:} \today\\[0.4em]
+  \rule{\linewidth}{0.4pt}
+}
+
+\begin{abstract}
+\begin{guidancebox}
+\textbf{Guidance.} 200--250 words. State: (1) the problem, (2) your method,
+(3) your main result compared to baselines, and (4) your novel contribution.
+\end{guidancebox}
+[WRITE YOUR ABSTRACT HERE. Include your best headline number.]
+\end{abstract}
+
+\section{Introduction}
+
+\begin{guidancebox}
+\textbf{Guidance.} 1/2--1 page. Motivate the problem, situate it in the
+broader DL literature, and end with a clear bullet list of your contributions.
+The last paragraph \emph{must} read: ``In summary, our contributions are:''
+followed by a \texttt{itemize} list.
+\end{guidancebox}
+
+%[MOTIVATION AND CONTEXT.]
+
+In summary, our contributions are:
+\begin{itemize}[noitemsep]
+  \item Contribution 1, e.g., ``We reproduce X on datasets A and B, achieving Y.''
+  \item Contribution 2, e.g., ``We propose Z, which improves performance by W\%.''
+  \item Contribution 3, e.g., ``We identify failure mode F and propose mitigation M.''
+\end{itemize}
+
+\section{Related Work}
+
+\begin{guidancebox}
+\textbf{Guidance.} 1/2--1 page. Synthesise the related work into 2--3 paragraphs
+by theme (e.g., ``CNN-based approaches'', ``Transformer-based approaches'').
+Explicitly distinguish your work from each group. Cite $\geq$7 papers.
+\end{guidancebox}
+
+%[RELATED WORK BY THEME, WITH EXPLICIT COMPARISONS TO YOUR WORK.]
+
+\section{Method}
+
+\begin{guidancebox}
+\textbf{Guidance.} 1--1.5 pages. Describe your approach with enough precision
+to reproduce it. Include: (1) a model diagram or pseudocode, (2) mathematical
+notation for the key components, (3) training objective, (4) any modifications
+to an existing method. Use the notation you use in your equations.
+\end{guidancebox}
+
+\subsection{Problem Formulation}
+
+[DEFINE THE TASK FORMALLY. E.g., ``Given input $x \in \mathcal{X}$, we seek a
+mapping $f_\theta$ such that $\hat{y} = f_\theta(x)$ minimises...'']
+
+\subsection{Model Architecture}
+
+[DESCRIBE YOUR ARCHITECTURE. Reference a figure if you include one.]
+
+\subsection{Training Objective}
+
+[STATE YOUR LOSS FUNCTION WITH EQUATION. E.g.,
+\begin{equation}
+  \mathcal{L} = \lambda_1 \mathcal{L}_{\mathrm{task}} + \lambda_2 \mathcal{L}_{\mathrm{aux}}
+  \label{eq:loss}
+\end{equation}
+where\ldots]
+
+\subsection{Proposed Modification}
+
+[DESCRIBE WHAT YOU CHANGED OR ADDED RELATIVE TO THE BASELINE.
+WHY DID YOU EXPECT THIS TO HELP? WHAT IS THE HYPOTHESIS?]
+
+\section{Experiments}
+
+\begin{guidancebox}
+\textbf{Guidance.} This section carries the most weight. Structure it as:
+setup $\to$ main results $\to$ ablation $\to$ qualitative analysis $\to$
+failure analysis. All quantitative results must be reported as mean $\pm$ std
+over $\geq$3 independent seeds with different random initialisations.
+\end{guidancebox}
+
+\subsection{Experimental Setup}
+
+\begin{tabular}{ll}
+\toprule
+\textbf{Setting} & \textbf{Value} \\
+\midrule
+Dataset(s) & [e.g., CIFAR-10: 50k train / 10k test] \\
+Metrics & [e.g., Top-1 Accuracy, ECE, AUROC] \\
+Optimiser & [e.g., AdamW, $\beta_1=0.9$, $\beta_2=0.999$] \\
+Learning rate & [e.g., $5\times10^{-4}$ with cosine decay] \\
+Batch size & [e.g., 128] \\
+Training duration & [e.g., 100 epochs] \\
+Seeds & [e.g., 42, 123, 999] \\
+Hardware & [e.g., CPU: Intel i7-12700H; or Google Colab T4 GPU] \\
+\bottomrule
+\end{tabular}
+
+\subsection{Main Results}
+
+\begin{guidancebox}
+\textbf{Guidance.} Provide one main results table comparing your method to
+$\geq$2 published baselines. Each cell: mean $\pm$ std from 3 runs. Bold the best.
+Write 2--3 paragraphs of analysis below the table.
+\end{guidancebox}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Method} & \textbf{Metric 1} $\uparrow$ & \textbf{Metric 2} $\downarrow$ \\
+\midrule
+Baseline 1 (Pub.) & [Published value] & [Published value] \\
+Baseline 2 (Pub.) & [Published value] & [Published value] \\
+Our reproduction & [Value] $\pm$ [Std] & [Value] $\pm$ [Std] \\
+\textbf{Ours (proposed)} & \textbf{[Value] $\pm$ [Std]} & \textbf{[Value] $\pm$ [Std]} \\
+\bottomrule
+\end{tabular}
+\caption{Main results on [DATASET], [SPLIT]. All reported results are mean $\pm$ std over 3 seeds.
+$\uparrow$ = higher is better; $\downarrow$ = lower is better.}
+\label{tab:main}
+\end{table}
+
+[ANALYSIS: Interpret Table~\ref{tab:main}. What do the numbers show?
+Is the improvement statistically meaningful? What is the effect size?]
+
+\subsection{Ablation Study}
+
+\begin{guidancebox}
+\textbf{Guidance.} Ablate each component of your proposed method individually.
+Start from the full model and remove one thing at a time, or start from the
+baseline and add one thing at a time. Each ablation should have a clear
+hypothesis and result.
+\end{guidancebox}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Configuration} & \textbf{Component A} & \textbf{Component B} & \textbf{Metric} \\
+\midrule
+Full model (ours) & \checkmark & \checkmark & [Value] $\pm$ [Std] \\
+w/o Component A & $\times$ & \checkmark & [Value] $\pm$ [Std] \\
+w/o Component B & \checkmark & $\times$ & [Value] $\pm$ [Std] \\
+Baseline & $\times$ & $\times$ & [Value] $\pm$ [Std] \\
+\bottomrule
+\end{tabular}
+\caption{Ablation study on [DATASET]. Each row is mean $\pm$ std over 3 seeds.}
+\label{tab:ablation}
+\end{table}
+
+[ANALYSIS: What does Table~\ref{tab:ablation} show about which components
+contribute most? Are the contributions additive? Independent?]
+
+\subsection{Qualitative Analysis}
+
+[INSERT FIGURE(S) SHOWING REPRESENTATIVE PREDICTIONS. For image tasks: a grid
+of input/output/ground-truth comparisons. For text tasks: example outputs.
+For classification: a confusion matrix or t-SNE plot.]
+
+\begin{figure}[h]
+  \centering
+  % \includegraphics[width=\linewidth]{figures/qual.png}
+  \caption{[CAPTION: describe what each panel shows and what it demonstrates.]}
+  \label{fig:qual}
+\end{figure}
+
+\subsection{Failure Analysis}
+
+\begin{guidancebox}
+\textbf{Guidance.} Identify $\geq$3 categories of failure cases. For each:
+show an example (or describe one), explain \emph{why} the model fails,
+and suggest a potential mitigation. This section is highly valued by reviewers.
+\end{guidancebox}
+
+\paragraph{Failure type 1:} [NAME] --- [DESCRIBE WHEN AND WHY THE MODEL FAILS.
+HOW WOULD YOU MITIGATE THIS?]
+
+\paragraph{Failure type 2:} [NAME] --- [DESCRIBE.]
+
+\paragraph{Failure type 3:} [NAME] --- [DESCRIBE.]
+
+\section{Discussion}
+
+\begin{guidancebox}
+\textbf{Guidance.} 1/2 page. Interpret your results in the context of the
+literature. Were your hypotheses confirmed? What did you learn?
+What would you do differently with more time or compute?
+\end{guidancebox}
+
+[INTERPRETATION AND DISCUSSION. CONNECT BACK TO YOUR RESEARCH QUESTION.]
+
+\subsection{Limitations}
+
+[HONESTLY LIST THE LIMITATIONS OF YOUR WORK: compute constraints, dataset
+size, hyperparameter sensitivity, evaluation scope, etc.]
+
+\section{Conclusion}
+
+[CONCISE SUMMARY: what you set out to do, what you found, and one concrete
+future direction for follow-up work.]
+
+\section{AI Tool Disclosure}
+
+\begin{guidancebox}
+\textbf{Required for all submissions.} Per course policy, you must declare
+all AI tools used and how you used them.
+\end{guidancebox}
+
+[EXAMPLE: ``We used Claude (Anthropic, claude.ai) for help debugging our
+training loop (Sec.~4) and for writing feedback on Sec.~5. All analysis,
+interpretation, and experimental results are our own. We verified all
+AI-generated claims against primary sources.'']
+
+\section{Contribution Declaration}
+
+\begin{tabular}{lcc}
+\toprule
+\textbf{Member} & \textbf{Contributions} & \textbf{\%} \\
+\midrule
+{[Student 1]} & [e.g., Method design, report Secs.~3--4, experiments] & \% \\
+{[Student 2]} & [e.g., Literature review, ablations, figures] & \% \\
+{[Student 3]} & [e.g., Data pipeline, code, README, reproducibility] & \% \\
+\bottomrule
+\end{tabular}
+
+\section{References}
+
+\begin{enumerate}[label={[\arabic*]},leftmargin=*]
+  \item [Author(s), Year. ``Title.'' \textit{Venue}. arXiv:XXXX.XXXXX]
+  \item [\ldots]
+\end{enumerate}
+
+\appendix
+
+\section{Appendix: Additional Results}
+
+\begin{guidancebox}
+\textbf{Guidance.} Place supplementary tables, figures, and extended ablations
+here. The appendix does not count toward the 6--8 page main body limit.
+\end{guidancebox}
+
+[ADDITIONAL RESULTS, EXTENDED ABLATIONS, IMPLEMENTATION DETAILS.]
+
+\section{Appendix: Reproducibility Checklist}
+
+Confirm each item before submission:
+
+\begin{itemize}[noitemsep]
+  \item[$\square$] \texttt{README.md} explains how to reproduce all main results with one command.
+  \item[$\square$] \texttt{requirements.txt} or \texttt{environment.yml} lists all dependencies with versions.
+  \item[$\square$] All random seeds are fixed and documented.
+  \item[$\square$] All results are mean $\pm$ std over $\geq$3 independent runs.
+  \item[$\square$] GitHub repository is public and the link is in the report header.
+  \item[$\square$] No hard-coded absolute paths in any script.
+  \item[$\square$] All datasets are downloaded programmatically or clearly documented.
+  \item[$\square$] Model checkpoints or inference instructions are included (if model is too large, document how to retrain from scratch).
+\end{itemize}
+
+\end{document}

@@ -36,6 +36,7 @@ def test_revin_reversibility():
     (iTransformer, "iTransformer"),
     (FRPPatchTST, "FRPPatchTST_gumbel"),
     (FRPPatchTST, "FRPPatchTST_heuristic"),
+    (FRPPatchTST, "FRPPatchTST_random"),
 ])
 def test_model_forward_and_backward(model_class, model_name):
     """Verify output shapes [B, S, N] and check that backpropagation updates all parameters."""
@@ -48,10 +49,12 @@ def test_model_forward_and_backward(model_class, model_name):
         model = model_class(num_variates=N, lookback_len=L, pred_len=S, router_type="gumbel")
     elif model_name == "FRPPatchTST_heuristic":
         model = model_class(num_variates=N, lookback_len=L, pred_len=S, router_type="heuristic")
+    elif model_name == "FRPPatchTST_random":
+        model = model_class(num_variates=N, lookback_len=L, pred_len=S, router_type="random")
     else:
         model = model_class(num_variates=N, lookback_len=L, pred_len=S)
         
-    if model_name == "FRPPatchTST_heuristic":
+    if model_name in ("FRPPatchTST_heuristic", "FRPPatchTST_random"):
         out, weights = model(x, return_routing=True)
         active_branches = {i for i in range(len(model.patch_sizes)) if (weights[:, i] > 0.5).any()}
     else:
@@ -65,7 +68,7 @@ def test_model_forward_and_backward(model_class, model_name):
     loss.backward()
 
     for name, param in model.named_parameters():
-        if model_name == "FRPPatchTST_heuristic":
+        if model_name in ("FRPPatchTST_heuristic", "FRPPatchTST_random"):
             if name.startswith("router_mlp.") or name in ("anchor_centers", "anchor_scale"):
                 continue
             # Sparse dispatch only runs active branches present in the batch
@@ -151,3 +154,58 @@ def test_frp_temperature_and_return_routing():
     _, w_diverse = model(x_diverse, return_routing=True)
     active_branches = (w_diverse.sum(dim=0) > 0).sum().item()
     assert active_branches >= 2, f"Expected multi-branch routing across diverse spectra, got {w_diverse.sum(dim=0)}"
+
+
+def test_frp_sparse_vs_dense_eval_equivalence_and_skip():
+    """Verify sparse eval() matches dense one-hot eval() within 1e-5 and skips unused branches."""
+    torch.manual_seed(42)
+    x = torch.randn(B, L, N)
+
+    for rtype in ("gumbel", "heuristic"):
+        model = FRPPatchTST(num_variates=N, lookback_len=L, pred_len=S, router_type=rtype)
+        model.eval()
+        with torch.no_grad():
+            out_sparse, w_sparse = model(x, return_routing=True, dense_eval=False)
+            out_dense, w_dense = model(x, return_routing=True, dense_eval=True)
+        assert torch.equal(w_sparse, w_dense)
+        torch.testing.assert_close(out_sparse, out_dense, rtol=1e-5, atol=1e-5)
+
+    rand_model = FRPPatchTST(num_variates=N, lookback_len=L, pred_len=S, router_type="random")
+    rand_model.eval()
+    with torch.no_grad():
+        torch.manual_seed(123)
+        out_r_sparse, w_r_sparse = rand_model(x, return_routing=True, dense_eval=False)
+        torch.manual_seed(123)
+        out_r_dense, w_r_dense = rand_model(x, return_routing=True, dense_eval=True)
+    assert torch.equal(w_r_sparse, w_r_dense)
+    torch.testing.assert_close(out_r_sparse, out_r_dense, rtol=1e-5, atol=1e-5)
+
+    # Pure low-frequency sine wave routes all windows to a single branch, skipping the other 3
+    t = torch.linspace(0, 4 * torch.pi, L)
+    x_sine = torch.sin(t).view(1, L, 1).repeat(B, 1, N)
+    for rtype in ("gumbel", "heuristic"):
+        model = FRPPatchTST(num_variates=N, lookback_len=L, pred_len=S, router_type=rtype)
+        model.eval()
+        embed_calls = [0, 0, 0, 0]
+        head_calls = [0, 0, 0, 0]
+        hooks = []
+        for idx in range(4):
+            hooks.append(model.embed_layers[idx].register_forward_hook(lambda m, inp, out, i=idx: embed_calls.__setitem__(i, embed_calls[i] + 1)))
+            hooks.append(model.heads[idx].register_forward_hook(lambda m, inp, out, i=idx: head_calls.__setitem__(i, head_calls[i] + 1)))
+
+        with torch.no_grad():
+            _, w = model(x_sine, return_routing=True, dense_eval=False)
+        active = (w.sum(dim=0) > 0).tolist()
+        assert sum(active) == 1, f"Expected single active branch for pure sine, got {w.sum(dim=0)}"
+        for i, is_active in enumerate(active):
+            expected_calls = 1 if is_active else 0
+            assert embed_calls[i] == expected_calls, f"embed_layers[{i}] called {embed_calls[i]} times"
+            assert head_calls[i] == expected_calls, f"heads[{i}] called {head_calls[i]} times"
+
+        embed_calls = [0, 0, 0, 0]
+        head_calls = [0, 0, 0, 0]
+        with torch.no_grad():
+            _ = model(x_sine, dense_eval=True)
+        assert embed_calls == [1, 1, 1, 1] and head_calls == [1, 1, 1, 1]
+        for h in hooks:
+            h.remove()
