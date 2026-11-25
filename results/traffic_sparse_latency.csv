@@ -1,0 +1,5 @@
+mode,device,num_variates,batch_size,timed_batches,latency_ms_mean,latency_ms_std,peak_mem_mb,speedup_vs_dense,latency_reduction_pct,max_abs_diff_vs_dense,test_mse,test_mae
+FRPPatchTST (Dense 4-Branch Eval),cuda,862,8,50,179.847,0.79,526.59,1.0,0.0,0.0,0.549445,0.342916
+FRPPatchTST (Sparse Single-Branch Eval),cuda,862,8,50,48.104,2.4,205.7,3.739,73.25,3.43e-05,0.549445,0.342916
+PatchTST (P=16),cuda,862,8,50,45.784,0.299,283.83,3.928,74.54,,,
+PatchTST (P=32),cuda,862,8,50,37.332,0.152,162.55,4.818,79.24,,,

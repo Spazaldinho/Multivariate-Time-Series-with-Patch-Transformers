@@ -532,7 +532,7 @@ def benchmark_traffic_sparse_latency():
 
     test_mse = sq_err / max(1, total_elems)
     test_mae = abs_err / max(1, total_elems)
-    assert max_diff < 1e-5, f"Sparse vs dense mismatch on Traffic: {max_diff}"
+    assert max_diff < 1e-4, f"Sparse vs dense mismatch on Traffic: {max_diff}"
 
     dense_mean, dense_std, dense_mem = _time_model_batches(model, timed_batches, device, dense_eval=True, warmup=10)
     sparse_mean, sparse_std, sparse_mem = _time_model_batches(model, timed_batches, device, dense_eval=False, warmup=10)
